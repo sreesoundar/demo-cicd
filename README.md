@@ -11,8 +11,11 @@ one-for-one. Added on top of the template: `vitest`, one pure util
 (`src/greet.ts`) and its test (`src/greet.test.ts`) so the CI test step has
 something real to fail on.
 
-Local: `C:\SREE\dev\demo-cicd`. No TimberCore code, no credentials, nothing
-pointing at staging or prod.
+- Repo: https://github.com/sreesoundar/demo-cicd (public)
+- Live: https://sreesoundar.github.io/demo-cicd/
+- Local: `C:\SREE\dev\demo-cicd`
+
+No TimberCore code, no credentials, nothing pointing at staging or prod.
 
 ## 2. Pipeline
 
@@ -38,7 +41,7 @@ One workflow file: `.github/workflows/ci-cd.yml`.
 would hang the runner).
 
 ### Deploy (`deploy` job)
-Target: **GitHub Pages**, `https://<owner>.github.io/demo-cicd/`.
+Target: **GitHub Pages**, https://sreesoundar.github.io/demo-cicd/.
 
 - `ci` uploads `dist/` via `actions/upload-pages-artifact`, gated on
   `github.ref == 'refs/heads/main'` so PR runs build-and-verify without
