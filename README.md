@@ -119,9 +119,16 @@ Branch protection is **live on `main`**, not just described:
 Approvals is 0 only because this is a solo repo and GitHub blocks self-approval,
 so 1 would deadlock every merge. Real repos want 1+.
 
-`environment: github-pages` is attached to the deploy job — that's the hook for
-required reviewers (**Settings → Environments**) to make prod deploys
-manual-approval. Not enabled on the demo; this is where it goes for real.
+`environment: github-pages` is attached to the deploy job, with a **required
+reviewer** configured on that environment. Every deploy to `main` now parks in
+`waiting` until a human approves it — `ci` and `backend` go green, and the
+`deploy` job sits there rather than publishing. This is the manual-approval gate
+the real prod pipelines will need; enabled here so it's proven rather than
+assumed.
+
+Note `can_admins_bypass` defaults to **true** on the environment — an admin can
+push a deploy through without the review. Set it false if the approval must be
+unconditional.
 
 ### Proven, not assumed
 
