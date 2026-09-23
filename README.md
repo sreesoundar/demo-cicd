@@ -3,50 +3,70 @@
 Throwaway app used to prove out a GitHub Actions CI/CD pipeline before rolling
 the same shape into the real TimberCore repos. ClickUp: 14yp17zn2mr.
 
-## 1. Demo app
-
-Vite + React 19 + TypeScript (`npm create vite@latest -- --template react-ts`),
-deliberately the same stack as `TimberCore/src/UI` so the workflow transfers
-one-for-one. Added on top of the template: `vitest`, one pure util
-(`src/greet.ts`) and its test (`src/greet.test.ts`) so the CI test step has
-something real to fail on.
-
 - Repo: https://github.com/sreesoundar/demo-cicd (public)
 - Live: https://sreesoundar.github.io/demo-cicd/
 - Local: `C:\SREE\dev\demo-cicd`
 
 No TimberCore code, no credentials, nothing pointing at staging or prod.
 
+## 1. Demo app
+
+Two halves, deliberately mirroring the real stack so the workflow transfers
+one-for-one:
+
+| | |
+|---|---|
+| **Frontend** | Vite + React 19 + TypeScript, same as `TimberCore/src/UI`. Plus `vitest`, one pure util (`src/greet.ts`) and its test |
+| **Backend** | `api/` — net8.0 webapi + xunit, one solution (`api/Demo.sln`), same target framework as TimberCore |
+
+Both halves have a real test with a real assertion, so the test steps have
+something that can actually fail.
+
 ## 2. Pipeline
 
-One workflow file: `.github/workflows/ci-cd.yml`.
+One workflow file: `.github/workflows/ci-cd.yml`. Three jobs: `ci` (frontend),
+`backend`, and `deploy`.
 
 ### Triggers
-- `pull_request` → `main`: runs the `ci` job only.
-- `push` → `main`: runs `ci`, then `deploy`.
+- `pull_request` → `main`: runs `ci` and `backend`.
+- `push` → `main`: runs `ci` and `backend`, then `deploy`.
 - `concurrency` cancels a superseded run on the same ref, so a fast follow-up
   push doesn't race the earlier deploy.
 
-### Build steps (`ci` job)
+### Frontend (`ci` job)
 1. `actions/checkout`
-2. `actions/setup-node` @ Node 20 with `cache: npm` (restores `~/.npm` keyed on
+2. `actions/setup-node` @ Node 22 with `cache: npm` (restores `~/.npm` keyed on
    `package-lock.json` — turns a ~60s install into a few seconds)
 3. `npm ci` — lockfile-exact install, fails if `package.json` and the lockfile
    have drifted apart (`npm install` would silently fix it up instead)
 4. `npm run lint` — oxlint
-5. `npm run build` — `tsc -b && vite build`, so a type error fails CI
+5. `npm test` → `vitest run` (single run, not watch — watch mode never exits and
+   would hang the runner)
+6. `npm run build` — `tsc -b && vite build`, so a type error fails CI
 
-### Test step
-`npm test` → `vitest run` (single run, not watch — watch mode never exits and
-would hang the runner).
+### Backend (`backend` job)
+Runs in parallel with `ci`, `working-directory: api`.
+
+1. `actions/checkout`
+2. `actions/setup-dotnet` @ 8.0.x
+3. `dotnet restore Demo.sln`
+4. `dotnet build Demo.sln -c Release --no-restore`
+5. `dotnet test Demo.sln -c Release --no-build --logger "trx;..."` — results
+   upload as an artifact on every run, `if: always()`, so a failure is
+   inspectable without re-reading the log
+
+`cache: true` on `setup-dotnet` is deliberately **not** used: it requires
+`packages.lock.json` files, which means committing to lock-file maintenance via
+`RestorePackagesWithLockFile`. Restore is seconds on two small projects. For
+TimberCore's larger solution it's worth revisiting, with that cost understood.
 
 ### Deploy (`deploy` job)
-Target: **GitHub Pages**, https://sreesoundar.github.io/demo-cicd/.
+Target: **GitHub Pages**, https://sreesoundar.github.io/demo-cicd/
 
 - `ci` uploads `dist/` via `actions/upload-pages-artifact`, gated on
   `github.ref == 'refs/heads/main'` so PR runs build-and-verify without
   publishing anything.
-- `deploy` `needs: ci`, so a red test blocks the deploy.
+- `deploy` `needs: [ci, backend]` — either half failing blocks the release.
 - `actions/deploy-pages` publishes that artifact.
 - `vite.config.ts` sets `base: '/demo-cicd/'` — without it the built asset URLs
   resolve to the domain root and the Pages site loads blank.
@@ -54,6 +74,12 @@ Target: **GitHub Pages**, https://sreesoundar.github.io/demo-cicd/.
 Pages was chosen as the demo target because it needs zero cloud infrastructure
 and zero long-lived credentials. For the real apps this job is the seam to
 swap: same gates, different deploy action (AWS/ECS/S3/Lambda).
+
+**Known gap:** the `backend` job builds and tests but nothing deploys it. Pages
+is static-frontend-only. A real backend deploy is the AWS work below.
+
+Runners are pinned to `ubuntu-24.04` rather than `ubuntu-latest`, which migrates
+to Ubuntu 26 on 19 Oct 2026.
 
 ## 3. Secrets / credentials
 
@@ -79,27 +105,52 @@ write scopes granted only on the one job that needs them.
 
 ## 4. Gates
 
-- `deploy` runs only on `main`, and only after `ci` passes.
-- `environment: github-pages` — attaching an environment means a required
-  reviewer can be added in **Settings → Environments** to make prod deploys
-  manual-approval. Not enabled on the demo; this is where it goes for real.
-- **Branch protection on `main`** (Settings → Branches → Add rule) to make it
-  stick: require a PR before merging, and mark the `ci` check required. Without
-  this, Actions reports failures but nothing stops a merge.
+Branch protection is **live on `main`**, not just described:
+
+| Rule | State |
+|---|---|
+| PR required before merge | yes |
+| Required checks | `ci`, `backend` |
+| Strict | yes — branch must be up to date before merge |
+| Enforced on admins | yes — no bypass |
+| Force push / deletion | blocked |
+| Approvals required | **0** |
+
+Approvals is 0 only because this is a solo repo and GitHub blocks self-approval,
+so 1 would deadlock every merge. Real repos want 1+.
+
+`environment: github-pages` is attached to the deploy job — that's the hook for
+required reviewers (**Settings → Environments**) to make prod deploys
+manual-approval. Not enabled on the demo; this is where it goes for real.
+
+### Proven, not assumed
+
+PR #1 carried one deliberately wrong assertion. Result: `ci` **failed** in 11s,
+`deploy` was **skipped** so nothing reached the live site, and the PR merge
+state was **BLOCKED**. The gate stops a bad merge in practice, not just on paper.
 
 ## 5. Rolling this into TimberCore
 
-The frontend job is a near copy-paste (`TimberCore/src/UI` working-directory).
-The backend needs a parallel job: `actions/setup-dotnet`, `dotnet restore`,
-`dotnet build TimberCore.sln`, `dotnet test TimberCore.sln`. Mind the existing
-constraint that the API holds file locks on its own DLLs — not an issue on a
-clean runner, but it is why local build order matters.
+Both jobs are close to copy-paste — point `ci` at `TimberCore/src/UI` and
+`backend` at `TimberCore.sln`. Watch for:
+
+- **`*.sln` in `.gitignore`.** The Vite template blanket-ignores it, so the
+  solution file silently never reaches the repo and CI fails on `dotnet restore`
+  with a missing-file error whose cause isn't obvious. Negated here with
+  `!api/Demo.sln`.
+- **The API holds file locks on its own DLLs.** Not an issue on a clean runner,
+  but it's why local build order matters.
+- **Deploy target** is the one piece that's genuinely new work: AWS IAM OIDC
+  provider + deploy role, so the real pipelines stay secret-free the same way
+  this one does.
 
 ## Commands
 
 ```bash
 npm install
-npm run dev     # :5173
+npm run dev                          # :5173
 npm test
 npm run build
+
+dotnet test api/Demo.sln             # backend
 ```
