@@ -8,3 +8,8 @@ test("greets a name", () => {
 test("falls back to world when blank", () => {
   expect(greet("  ")).toBe("Hello, world!");
 });
+
+// Frontend-only failure: backend should still run green and report separately.
+test("DELIBERATELY FAILING - frontend only", () => {
+  expect(greet("x")).toBe("wrong on purpose");
+});
