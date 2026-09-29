@@ -2,13 +2,30 @@ import { useState } from 'react'
 import heroImg from './assets/hero.png'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
+import HelloPage from './HelloPage'
 import './App.css'
 
 function App() {
   const [count, setCount] = useState(0)
+  const [page, setPage] = useState<'home' | 'hello'>('home')
+
+  if (page === 'hello') {
+    return (
+      <>
+        <button type="button" className="counter" onClick={() => setPage('home')}>
+          Back
+        </button>
+        <HelloPage />
+      </>
+    )
+  }
 
   return (
     <>
+      <button type="button" className="counter" onClick={() => setPage('hello')}>
+        Go to Hello page
+      </button>
+
       <section id="center">
         <div className="hero">
           <img src={heroImg} className="base" width="170" height="179" alt="" />
