@@ -2,7 +2,7 @@ function HelloPage() {
   return (
     <section id="center">
       <div>
-        <h1>Hello from CI/CD v1</h1>
+        <h1>Hello from CI/CD v2</h1>
       </div>
     </section>
   )
